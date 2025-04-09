@@ -17,12 +17,13 @@ export default function Home() {
   const { register, handleSubmit, formState: { errors } } = useForm();
   const fileInputRef = useRef(null);
 
-  const onFileChange = (e) => {
+  const onFileChange = async (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile && selectedFile.type === 'application/pdf') {
       setFile(selectedFile);
       setFilename(selectedFile.name);
       setError('');
+      await processPDF(selectedFile);
     } else {
       setFile(null);
       setFilename('');
@@ -30,14 +31,14 @@ export default function Home() {
     }
   };
 
-  const processPDF = async () => {
-    if (!file) return;
+  const processPDF = async (selectedFile) => {
+    if (!selectedFile) return;
 
     setProcessing(true);
     setError('');
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', selectedFile);
 
     try {
       const response = await fetch('/api/process-pdf', {
@@ -138,15 +139,12 @@ export default function Home() {
 
             {filename && <p className="mb-4 text-sm text-gray-600">Selected file: {filename}</p>}
 
-            <button
-              onClick={processPDF}
-              disabled={!file || processing}
-              className={`w-full py-2 px-4 rounded-md ${!file || processing
-                ? 'bg-gray-300 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-            >
-              {processing ? 'Processing...' : 'Process PDF'}
-            </button>
+            {processing ? (
+              <div className="w-full text-center py-2 text-blue-600 font-medium">Processing...</div>
+            ) : (
+             null
+            )}
+
           </>
         ) : (
           <div className="flex flex-col items-center">
