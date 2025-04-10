@@ -4,17 +4,16 @@ import { getVectorData, findSimilarChunks } from '../../../../lib/vectorStorage'
 
 export async function POST(request) {
   try {
-    const { question, docId } = await request.json();
+    const { question, docIds } = await request.json();
 
     if (!question) {
       return NextResponse.json({ error: "No question provided" }, { status: 400 });
     }
 
-    if (!docId) {
-      return NextResponse.json({ error: "No document ID provided" }, { status: 400 });
+    if (!docIds || !Array.isArray(docIds) || docIds.length === 0) {
+      return NextResponse.json({ error: "No document IDs provided" }, { status: 400 });
     }
 
-    // Step 1: Get embedding for the question
     const embeddings = new GoogleGenerativeAIEmbeddings({
       apiKey: process.env.GOOGLE_API_KEY,
       modelName: "embedding-001",
@@ -22,16 +21,24 @@ export async function POST(request) {
 
     const queryEmbedding = await embeddings.embedQuery(question);
 
-    // Step 2: Get stored vectors
-    const vectorData = await getVectorData(docId);
-    if (!vectorData) {
-      return NextResponse.json({ error: "Document not found" }, { status: 404 });
+    let allChunks = [];
+
+    for (const docId of docIds) {
+      const vectorData = await getVectorData(docId);
+      if (!vectorData) {
+        console.warn(`Vector data not found for docId: ${docId}`);
+        continue; // Skip missing docs
+      }
+
+      const chunks = await findSimilarChunks(docId, queryEmbedding);
+      allChunks.push(...chunks);
     }
 
-    // Step 3: Find similar chunks
-    const relevantChunks = await findSimilarChunks(docId, queryEmbedding);
+    if (allChunks.length === 0) {
+      return NextResponse.json({ error: "No relevant context found in documents." }, { status: 404 });
+    }
 
-    const contextText = relevantChunks.join("\n\n");
+    const contextText = allChunks.join("\n\n");
 
     const finalPrompt = `
 You are a helpful assistant that provides accurate information based on the documents you have been given.
@@ -46,7 +53,6 @@ If you don't know the answer or can't find the information in the provided conte
 Helpful Answer:
     `;
 
-    // Step 4: Call Gemini 2.0 Flash API (v1beta)
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`, {
       method: "POST",
       headers: {

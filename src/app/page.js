@@ -4,55 +4,63 @@ import { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 
 export default function Home() {
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [filenames, setFilenames] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [processed, setProcessed] = useState(false);
-  const [docId, setDocId] = useState('');
+  const [docIds, setDocIds] = useState([]);
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [loading, setLoading] = useState(false);
-  const [filename, setFilename] = useState('');
   const [error, setError] = useState('');
 
   const { register, handleSubmit, formState: { errors } } = useForm();
   const fileInputRef = useRef(null);
 
   const onFileChange = async (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile && selectedFile.type === 'application/pdf') {
-      setFile(selectedFile);
-      setFilename(selectedFile.name);
-      setError('');
-      await processPDF(selectedFile);
-    } else {
-      setFile(null);
-      setFilename('');
-      setError('Please select a PDF file');
+    const selectedFiles = Array.from(e.target.files).slice(0, 3);
+    const validFiles = selectedFiles.filter(file => file.type === 'application/pdf');
+
+    if (validFiles.length === 0) {
+      setFiles([]);
+      setFilenames([]);
+      setError('Please select up to 3 valid PDF files');
+      return;
     }
+
+    setFiles(validFiles);
+    setFilenames(validFiles.map(file => file.name));
+    setError('');
+    await processPDFs(validFiles);
   };
 
-  const processPDF = async (selectedFile) => {
-    if (!selectedFile) return;
-
+  const processPDFs = async (selectedFiles) => {
     setProcessing(true);
     setError('');
-
-    const formData = new FormData();
-    formData.append('file', selectedFile);
+    setDocIds([]);
 
     try {
-      const response = await fetch('/api/process-pdf', {
-        method: 'POST',
-        body: formData,
-      });
+      const uploadedDocIds = [];
 
-      const result = await response.json();
+      for (const file of selectedFiles) {
+        const formData = new FormData();
+        formData.append('file', file);
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to process PDF');
+        const response = await fetch('/api/process-pdf', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to process one or more PDFs');
+        }
+
+        uploadedDocIds.push(result.docId);
       }
 
-      setDocId(result.docId);
+      setDocIds(uploadedDocIds);
       setProcessed(true);
     } catch (err) {
       setError(err.message);
@@ -73,7 +81,7 @@ export default function Home() {
     try {
       const endpoint = processed ? '/api/chat' : '/api/gemini';
       const body = processed
-        ? JSON.stringify({ question, docId })
+        ? JSON.stringify({ question, docIds })
         : JSON.stringify({ question });
 
       const response = await fetch(endpoint, {
@@ -100,12 +108,12 @@ export default function Home() {
   };
 
   const resetForm = () => {
-    setFile(null);
-    setFilename('');
+    setFiles([]);
+    setFilenames([]);
+    setDocIds([]);
     setProcessed(false);
     setQuestion('');
     setAnswer('');
-    setDocId('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -115,12 +123,12 @@ export default function Home() {
     <main className="flex min-h-screen flex-col items-center p-6 bg-gray-50">
       <h1 className="text-3xl font-bold my-8 text-center text-black">PDF QA Chatbot</h1>
       <p className="mb-8 text-gray-600 max-w-xl text-center">
-        Upload a PDF, then ask questions based on it. Or just ask anything without uploading!
+        Upload up to 3 PDFs, then ask questions based on them. Or just ask anything without uploading!
       </p>
 
       {/* PDF Upload Section */}
       <div className="w-full max-w-3xl bg-white rounded-lg shadow-md p-6 mb-8">
-        <h2 className="text-xl text-black font-semibold mb-4">Upload PDF Document</h2>
+        <h2 className="text-xl text-black font-semibold mb-4">Upload PDF Documents</h2>
 
         {!processed ? (
           <>
@@ -129,6 +137,7 @@ export default function Home() {
               ref={fileInputRef}
               onChange={onFileChange}
               accept="application/pdf"
+              multiple
               className="mb-4 block w-full text-sm text-gray-500
                 file:mr-4 file:py-2 file:px-4
                 file:rounded-md file:border-0
@@ -137,27 +146,37 @@ export default function Home() {
                 hover:file:bg-blue-100"
             />
 
-            {filename && <p className="mb-4 text-sm text-gray-600">Selected file: {filename}</p>}
-
-            {processing ? (
-              <div className="w-full text-center py-2 text-blue-600 font-medium">Processing...</div>
-            ) : (
-             null
+            {filenames.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 font-medium">Selected files:</p>
+                <ul className="list-disc list-inside text-sm text-gray-600">
+                  {filenames.map((name, index) => (
+                    <li key={index}>{name}</li>
+                  ))}
+                </ul>
+              </div>
             )}
 
+            {processing && (
+              <div className="w-full text-center py-2 text-blue-600 font-medium">Processing PDFs...</div>
+            )}
           </>
         ) : (
           <div className="flex flex-col items-center">
             <div className="bg-green-50 text-green-800 rounded-md p-4 mb-4 w-full">
-              <p className="font-medium">PDF processed successfully!</p>
-              <p className="text-sm">File: {filename}</p>
+              <p className="font-medium">PDFs processed successfully!</p>
+              <ul className="list-disc list-inside text-sm">
+                {filenames.map((name, index) => (
+                  <li key={index}>{name}</li>
+                ))}
+              </ul>
             </div>
 
             <button
               onClick={resetForm}
               className="text-blue-600 hover:text-blue-800 underline text-sm"
             >
-              Upload a different PDF
+              Upload different PDFs
             </button>
           </div>
         )}
@@ -169,10 +188,6 @@ export default function Home() {
 
       {/* Question Input Section */}
       <div className="w-full max-w-3xl bg-white rounded-lg shadow-md p-6">
-        {/* <h2 className="text-xl font-semibold mb-4 text-black">
-          {processed ? 'Ask Questions About Your Document' : 'Ask Anything (No PDF Uploaded)'}
-        </h2> */}
-
         <form onSubmit={handleQuestionSubmit} className="mb-6">
           <div className="mb-4">
             <label htmlFor="question" className="block text-sm font-medium text-gray-700 mb-1">
